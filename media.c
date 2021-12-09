@@ -33,7 +33,6 @@
 
 #include <gst/gst.h>
 #include <gst/app/gstappsink.h>
-#include <gst/app/gstappbuffer.h>
 
 #include "media.h"
 
@@ -336,7 +335,7 @@ gst_bus_callback (GstBus *bus, GstMessage *message, gpointer user_data)
 	GList *walk;
 	GstHTTPMedia *media = (GstHTTPMedia *) user_data;
 
-	//GST_DEBUG_OBJECT(media, "Got %s message", GST_MESSAGE_TYPE_NAME (message));
+	GST_DEBUG_OBJECT(media, "Got %s message", GST_MESSAGE_TYPE_NAME (message));
 	switch (GST_MESSAGE_TYPE (message)) {
 		case GST_MESSAGE_ERROR: {
 			GError *err;
@@ -389,21 +388,26 @@ static GstFlowReturn
 gst_buffer_available(GstAppSink * sink, gpointer user_data)
 {
 	GList *walk;
+	GstSample *sample;
 	GstBuffer *buffer;
 	GstHTTPMedia *media;
 
 	/* get the buffer from appsink */
-	buffer = gst_app_sink_pull_buffer (sink);
+	sample = gst_app_sink_pull_sample (sink);
+	if (!sample)
+		return GST_FLOW_OK;
+
+	buffer = gst_sample_get_buffer(sample);
 	if (!buffer)
 		return GST_FLOW_OK;
 
  	media = (GstHTTPMedia *) user_data;
 
-	GST_DEBUG ("%s frame available: %d bytes", media->path, buffer->size);
+	GST_DEBUG ("%s frame available: %d bytes", media->path, (int) gst_buffer_get_size(buffer));
 
 	/* get width/height of stream */
 	if (0 == media->width) {
-		GstCaps *caps = gst_buffer_get_caps(buffer);
+		GstCaps *caps = gst_sample_get_caps(sample);
 		const GstStructure *str = gst_caps_get_structure (caps, 0);
 		if (!gst_structure_get_int (str, "width", (int*)&media->width) ||
 		    !gst_structure_get_int (str, "height", (int*)&media->height)) {
@@ -414,6 +418,10 @@ gst_buffer_available(GstAppSink * sink, gpointer user_data)
 
 	/* push buffer to clients*/
 	GST_HTTP_MEDIA_LOCK (media);
+	
+	GstMapInfo buffer_map_info = GST_MAP_INFO_INIT;
+	gst_buffer_map(buffer, &buffer_map_info, GST_MAP_READ);
+	
 	for (walk = media->clients; walk; walk = g_list_next (walk)) {
 		GstHTTPClient *c = (GstHTTPClient *) walk->data;
 
@@ -422,11 +430,11 @@ gst_buffer_available(GstAppSink * sink, gpointer user_data)
 			gst_http_client_write  (c, "\r\n");
 			gst_http_client_writeln(c, "--%s", MULTIPART_BOUNDARY);
 			gst_http_client_writeln(c, "Content-Type: image/jpeg");
-			gst_http_client_writeln(c, "Content-Length: %d", buffer->size);
+			gst_http_client_writeln(c, "Content-Length: %d", (int) gst_buffer_get_size(buffer));
 		}
 		if (strcmp(media->mimetype, "image/jpeg") == 0)
 		{
-			gst_http_client_writeln(c, "Content-Length: %d", buffer->size);
+			gst_http_client_writeln(c, "Content-Length: %d", (int) gst_buffer_get_size(buffer));
 		}
 		
 		if (media->ev_press && media->ev_press > c->ev_press) {
@@ -439,19 +447,20 @@ gst_buffer_available(GstAppSink * sink, gpointer user_data)
 
 		c->ewma_framesize = c->ewma_framesize ?
 				(((c->ewma_framesize * (2 /*weight*/ - 1)) +
-					(buffer->size * 1 /*factor*/)) / 2 /*weight*/) :
-				(buffer->size * 1 /*factor*/);
+					((int) gst_buffer_get_size(buffer) * 1 /*factor*/)) / 2 /*weight*/) :
+				((int) gst_buffer_get_size(buffer) * 1 /*factor*/);
 		avg_add_samples(&c->avg_frames, 1);
-		avg_add_samples(&c->avg_bytes, buffer->size);
+		avg_add_samples(&c->avg_bytes, (int) gst_buffer_get_size(buffer));
+
 		if (media->capture)
 		{
 			gchar *fname = g_strdup_printf(media->capture,
 				c->avg_frames.total);
-			g_file_set_contents(fname, (char*)buffer->data,
-				buffer->size, NULL);
+			g_file_set_contents(fname, (char*)buffer_map_info.data,
+				(int) gst_buffer_get_size(buffer), NULL);
 			g_free(fname);
 		}
-		if (gst_http_client_writebuf(c, (char*)buffer->data, buffer->size) < 0) {
+		if (gst_http_client_writebuf(c, (char*)buffer_map_info.data, (int) gst_buffer_get_size(buffer)) < 0) {
 			close(c->sock);
 		}
 
@@ -460,10 +469,11 @@ gst_buffer_available(GstAppSink * sink, gpointer user_data)
 			close(c->sock);
 		}
 	}
+	gst_buffer_unmap (buffer, &buffer_map_info);
 	GST_HTTP_MEDIA_UNLOCK (media);
 
 	/* we don't need the buffer anymore */
-	gst_buffer_unref(buffer);
+	gst_sample_unref(sample);
 
 	return GST_FLOW_OK;
 }
@@ -588,11 +598,11 @@ gst_http_media_create_pipeline(GstHTTPMedia *media)
 			fmt.index++;
 		}
 		if (strcmp(mediafmt, "image/jpeg") == 0) {
-			desc = g_strdup_printf("v4l2src device=%s ! %s,width=%d,height=%d "
+			desc = g_strdup_printf("v4l2src device=%s queue-size=10 ! queue ! %s,width=%d,height=%d "
 				"! appsink name=sink",
 				dev, mediafmt, width, height);
 		} else {
-			desc = g_strdup_printf("v4l2src device=%s ! %s,width=%d,height=%d "
+			desc = g_strdup_printf("v4l2src device=%s queue-size=10 ! queue ! %s,width=%d,height=%d "
 				"! jpegenc ! appsink name=sink",
 				dev, mediafmt, width, height);
 		}
@@ -620,7 +630,7 @@ gst_http_media_create_pipeline(GstHTTPMedia *media)
 	sink = gst_bin_get_by_name (GST_BIN(media->pipeline), "sink");
 	//g_object_set (G_OBJECT (sink), "emit-signals", TRUE, "sync", FALSE, NULL);
 	g_object_set (G_OBJECT (sink), "emit-signals", TRUE, FALSE, NULL);
-	g_signal_connect (sink, "new-buffer",
+	g_signal_connect (sink, "new-sample",
 		G_CALLBACK(gst_buffer_available), media);
 	gst_object_unref(sink);
 
