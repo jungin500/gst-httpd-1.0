@@ -104,7 +104,7 @@ input_thread(void *user_data)
 /** start input device thread
  */
 int
-input_device_open(GstHTTPMedia *media)
+gst_http_media_device_open(GstHTTPMedia *media)
 {
 	GST_INFO ("%s", __func__ );
 	if (media->input_dev && !media->input_thread) {
@@ -119,13 +119,15 @@ input_device_open(GstHTTPMedia *media)
  * (blocks until it is complete)
  */
 int
-input_device_close(GstHTTPMedia *media)
+gst_http_media_device_close(GstHTTPMedia *media)
 {
 	GST_INFO ("%s", __func__ );
 	if (media->input_thread) {
 		close(media->input_fd);
 		sleep(1);
+		g_print("Joining!");
 		pthread_join(media->input_thread, NULL);
+		g_print("Joining Done!");
 		media->input_fd = 0;
 		media->input_thread = 0;
 	}
@@ -612,7 +614,7 @@ gst_http_media_create_pipeline(GstHTTPMedia *media)
 		desc = g_strdup_printf("%s ! appsink name=sink", media->pipeline_desc);
 
 	/* install device event handler */
-	input_device_open(media);
+	gst_http_media_device_open(media);
 
 	GST_DEBUG ("launching pipeline '%s'", desc);
 	if (!(media->pipeline = gst_parse_launch(desc, &err))) {
@@ -630,8 +632,7 @@ gst_http_media_create_pipeline(GstHTTPMedia *media)
 	sink = gst_bin_get_by_name (GST_BIN(media->pipeline), "sink");
 	//g_object_set (G_OBJECT (sink), "emit-signals", TRUE, "sync", FALSE, NULL);
 	g_object_set (G_OBJECT (sink), "emit-signals", TRUE, FALSE, NULL);
-	g_signal_connect (sink, "new-sample",
-		G_CALLBACK(gst_buffer_available), media);
+	g_signal_connect (sink, "new-sample", G_CALLBACK(gst_buffer_available), media);
 	gst_object_unref(sink);
 
 	// set pipeline to playing state
@@ -727,7 +728,7 @@ gst_http_media_stop (GstHTTPMedia *media, GstHTTPClient *client)
 		// set pipeline to NULL state
 		gst_element_set_state (media->pipeline, GST_STATE_NULL);
 		g_object_unref (media->pipeline);
-		input_device_close(media);
+		gst_http_media_device_close(media);
 		media->pipeline = NULL;
 		media->ev_press = 0;
 		media->starttime = 0;

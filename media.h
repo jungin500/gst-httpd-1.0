@@ -107,6 +107,10 @@ GstHTTPMedia * gst_http_media_new_pipeline (const gchar *desc,
 GstHTTPMedia * gst_http_media_new_handler (const gchar *desc,
 	MediaHandlerFunc, gpointer);
 
+/* closing a media */
+int gst_http_media_device_open(GstHTTPMedia *media);
+int gst_http_media_device_close(GstHTTPMedia *media);
+
 /* media playback/control */
 gint gst_http_media_play (GstHTTPMedia *, GstHTTPClient *);
 gint gst_http_media_stop (GstHTTPMedia *, GstHTTPClient *);
