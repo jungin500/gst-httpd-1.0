@@ -92,19 +92,25 @@ gst_http_media_mapping_find (GstHTTPMediaMapping * mapping,
 {
 	GstHTTPMedia *result = NULL;
 	guint i;
+	
+	gchar *find_path;
+	if (path[0] != '/')
+		find_path = g_strconcat("/", path, NULL);
+	else
+		find_path = g_strdup(path);
 
 	GST_HTTP_MEDIA_MAPPING_LOCK(mapping);
 	for (i = 0; i < g_list_length(mapping->mappings); i++) {
 		result = g_list_nth_data(mapping->mappings, i);
 
-		if (strcmp(path, result->path) == 0) {
+		if (strcmp(find_path, result->path) == 0) {
 			break;
 		}
 
 		else if (strchr(result->path, '*')) {
 			int l = strchr(result->path, '*') - result->path;
 
-			if (strncmp(path, result->path, l) == 0) {
+			if (strncmp(find_path, result->path, l) == 0) {
 				break;
 			}
 		}
@@ -114,7 +120,7 @@ gst_http_media_mapping_find (GstHTTPMediaMapping * mapping,
 	GST_HTTP_MEDIA_MAPPING_UNLOCK(mapping);
 
 	if (result) {
-		GST_INFO ("found media %p for url abspath %s", result, path);
+		GST_INFO ("found media %p for url abspath %s", result, find_path);
 	}
 
 	return result;
