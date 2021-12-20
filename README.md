@@ -2,7 +2,7 @@ gst-httpd-1.0
 =============
 
 A simple HTTP server for interacting with GStreamer based pipelines
-** Updated to GStreamer 1.0 **
+** Updated to GStreamer 1.0 **  
 original project: https://github.com/tharvey/gst-httpd
 
 This project was created to explore using GStreamer as a source of media
