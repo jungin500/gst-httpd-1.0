@@ -634,7 +634,7 @@ gst_http_client_accept (GstHTTPClient * client, GIOChannel * channel)
 	GST_DEBUG_OBJECT (client, "Accepted connection %s:%d on %s",
 		client->peer_ip, client->port, client->serv_ip);
 
-#if 0 // if we set NONBLOCK we need to check for EAGAIN on each read/write call
+#if 1 // if we set NONBLOCK we need to check for EAGAIN on each read/write call
 	/* set non-blocking mode so that we can cancel the communication */
 	fcntl (fd, F_SETFL, O_NONBLOCK);
 #endif
